@@ -1,6 +1,7 @@
 #
-#    linotp-auth-pam - LinOTP PAM module
+#    pam_pidea_linotp - LinOTP PAM module modified for Privacyidea
 #    Copyright (C) 2010 - 2017 KeyIdentity GmbH
+#    Copyright (C) 2026        Adam Boutcher - IPPP, Durham University
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -15,33 +16,47 @@
 #    You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-#     E-mail: linotp@keyidentity.com
-#     Contact: www.linotp.org
-#     Support: www.keyidentity.com
+#     E-mail: adam.j.boutcher@durham.ac.uk
 #
 
 
 This is the LinOTP pam module, which will send the username and
-password - including otp - to the LinOTP-server to verify.
+password - including otp - to the LinOTP-server to verify. Now with support
+for PrivacyIDEA.
 
 Thus you can login via OTP to every service that supports pam.
 
-copy your /etc/pam.d/common_auth to something like /etc/pam.d/linotp_auth and replace the line
-   auth ...... pam_unix.so
+copy your /etc/pam.d/password-auth to something like /etc/pam.d/password-otp-auth and change the line:
 
-with
-   auth ...... pam_linotp.so
+auth        sufficient     pam_unix.so try_first_pass nullok
+
+to
+
+auth        required     pam_unix.so try_first_pass nullok
+auth        sufficient   pam_pidea_linotp.so url=<url> realm=<realm>
 
 Now you can use the
-  @include linotp_auth
-in every service you want to authenticate with OTP.
+
+auth substack password-otp-auth
+
+in every service you want to authenticate with Password and OTP.
 
 Config options to be set in the pam configuration:
-        url=http://localhost:5001/validate/simplecheck
+        url=http://localhost:5001/validate/simplecheck (LinOTP)
+        url=http://localhost:5001/validate/check       (PrivacyIDEA)
         nosslhostnameverify
         nosslcertverify
         realm=<yourRealm>
         resConf=<specialResolverConfig>
+        use_first_pass
+        hide_otp_input
+        debug (This will put the OTP in logs)
+
+
+
+Disclaimer:
+
+I do know write C, I have only modified this so it will work on EL9 with PrivacyIDEA, please open an issue/PR if you think of a saner way to make various checks and conversions.
 
 
 Have fun.

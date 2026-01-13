@@ -1,6 +1,7 @@
 /*
- *    linotp-auth-pam - LinOTP PAM module
+ *    pam_pidea_linotp - LinOTP PAM module modified for Privacyidea
  *    Copyright (C) 2010 - 2017 KeyIdentity GmbH
+ *    Copyright (C) 2026        Adam Boutcher - IPPP, Durham University
  *
  *    This program is free software: you can redistribute it and/or modify
  *    it under the terms of the GNU General Public License as published by
@@ -15,13 +16,11 @@
  *    You should have received a copy of the GNU General Public License
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- *     E-mail: linotp@keyidentity.com
- *     Contact: www.linotp.org
- *     Support: www.keyidentity.com
+ *     E-mail: adam.j.boutcher@durham.ac.uk
  */
 
 /*******************************************************************
- *   pam_linotp - pam authentication with your otp against linotp
+ *   pam_pidea_linotp - pam authentication with your otp against linotp and Privacyidea
  *******************************************************************
 
  * create a
@@ -29,13 +28,19 @@
 
  * with the following content
 
-    auth    [success=1 default=ignore] pam_linotp.so \
+    auth    [success=1 default=ignore] pam_pidea_linotp.so \
         url=http://linotpserver/validate/simplecheck noosslhostnameverify nosslcertverify \
         realm=mydefrealm
 
    or
 
-    auth    [success=1 default=ignore] pam_linotp.so \
+    auth    [success=1 default=ignore] pam_pidea_linotp.so \
+        url=http://privacyideaserver/validate/check noosslhostnameverify nosslcertverify \
+        realm=mydefrealm
+
+    or
+
+    auth    [success=1 default=ignore] pam_pidea_linotp.so \
         url=https://linotpserver/validate/simplecheck ca_file=/etc/ssl/ssl.crt/linotp-ca.cer \
         realm=mydefrealm
 
@@ -44,9 +49,9 @@
  *
  * parmeters are here:
  *
- *  pam_linotp.so           - the module ref, which should be in /lib/security
+ *  pam_pidea_linotp.so     - the module ref, which should be in /lib/security
  *                            in most cases
- *  url=https://l...        - the reference to your linotp server
+ *  url=https://l...        - the reference to your pidea/linotp server
  *  realm=..                - the default realm, where the user is to be searched
  *  ca_file=fullpath-cafile - added support for sslopt CURLOPT_CAINFO. This option
  *                            is not needed on MacOS installations. There, the
@@ -64,19 +69,8 @@
  *
  *  prompt=OTP:             - defines prompt text, default text is "Your OTP:"
  *
- *  debug                   - shows additional login infromation
+ *  debug                   - shows additional login information
  *
- * in your /etc/pam.d/ files you can include the linotp authenication by adding
- * the following line:
- *
-
-@include common-linotp
-
- *
-
- This is a derived work from:
- http://www.freebsd.org/doc/en/articles/pam/pam-sample-module.html
-
  *****************************************************************************/
 #include <pwd.h>
 #include <stdlib.h>
@@ -96,6 +90,9 @@
 
 #include <curl/curl.h>
 
+/* JSON Library */
+#include <jansson.h>
+
 #ifdef pam_prompt
 /* Fedora needs this */
 #include <security/pam_ext.h>
@@ -105,6 +102,9 @@
 #define LINOTPD_OK         ":-)"
 #define LINOTPD_REJECT     ":-("
 #define LINOTPD_FAIL       ":-/"
+
+#define PIDEA_OK           "ACCEPT"
+#define PIDEA_REJECT       "REJECT"
 
 /* config enries maxlen */
 #define URLMAXLEN    1000
@@ -169,15 +169,15 @@ static void do_log(int type, char * format, ...) {
 }
 
 #ifdef DEBUG
-#define log_error(format, ...)   do_log(LOG_ERR,    "linotp:ERROR: "   #format, ## __VA_ARGS__)
-#define log_debug(format, ...)   do_log(LOG_ERR,    "linotp:DEBUG: "   #format, ## __VA_ARGS__)
-#define log_warning(format, ...) do_log(LOG_ERR,    "linotp:WARNING: " #format, ## __VA_ARGS__)
-#define log_info(format, ...)    do_log(LOG_ERR,    "linotp:INFO: "    #format, ## __VA_ARGS__)
+#define log_error(format, ...)   do_log(LOG_ERR,    "pidea_linotp:ERROR: "   #format, ## __VA_ARGS__)
+#define log_debug(format, ...)   do_log(LOG_ERR,    "pidea_linotp:DEBUG: "   #format, ## __VA_ARGS__)
+#define log_warning(format, ...) do_log(LOG_ERR,    "pidea_linotp:WARNING: " #format, ## __VA_ARGS__)
+#define log_info(format, ...)    do_log(LOG_ERR,    "pidea_linotp:INFO: "    #format, ## __VA_ARGS__)
 #else
-#define log_error(format, ...)   do_log(LOG_ERR,     "linotp:ERROR: "   #format, ## __VA_ARGS__)
-#define log_debug(format, ...)   do_log(LOG_DEBUG,   "linotp:DEBUG: "   #format, ## __VA_ARGS__)
-#define log_warning(format, ...) do_log(LOG_WARNING, "linotp:WARNING: " #format, ## __VA_ARGS__)
-#define log_info(format, ...)    do_log(LOG_INFO,    "linotp:INFO: "    #format, ## __VA_ARGS__)
+#define log_error(format, ...)   do_log(LOG_ERR,     "pidea_linotp:ERROR: "   #format, ## __VA_ARGS__)
+#define log_debug(format, ...)   do_log(LOG_DEBUG,   "pidea_linotp:DEBUG: "   #format, ## __VA_ARGS__)
+#define log_warning(format, ...) do_log(LOG_WARNING, "pidea_linotp:WARNING: " #format, ## __VA_ARGS__)
+#define log_info(format, ...)    do_log(LOG_INFO,    "pidea_linotp:INFO: "    #format, ## __VA_ARGS__)
 #endif
 
 static char * erase_data(void * data, size_t len) {
@@ -293,6 +293,58 @@ static size_t curl_write_memory_callback(void *ptr, size_t size, size_t nmemb,
     return realsize;
 }
 
+void parse_json_response(const char *response, char **stat, char **msg) {
+    log_debug("Trying JSON");
+
+    json_error_t error;
+    json_t *root, *result, *authentication;
+
+    // Parse the JSON response
+    root = json_loads(response, 0, &error);
+    if (!root) {
+        log_error("JSON parsing error: %s (line %d)", error.text, error.line);
+        *stat = NULL;
+        *msg = strdup("Invalid JSON format");
+        return;
+    }
+
+    // Retrieve the `result` object
+    result = json_object_get(root, "result");
+    if (!json_is_object(result)) {
+        log_error("JSON does not contain a valid 'result' object");
+        *stat = strdup(LINOTPD_FAIL); // Default to a fail status
+        *msg = strdup("Invalid JSON structure");
+        json_decref(root);
+        return;
+    }
+
+    // Get the `authentication` key
+    authentication = json_object_get(result, "authentication");
+    if (!json_is_string(authentication)) {
+        log_error("JSON does not contain a valid 'authentication' key");
+        *stat = strdup(LINOTPD_FAIL); // Default to a fail status
+        *msg = strdup("Missing 'authentication' in JSON");
+        json_decref(root);
+        return;
+    }
+
+    // Convert the authentication status to the old format (:-), :-()
+    const char *auth_status = json_string_value(authentication);
+    if (strcmp(auth_status, PIDEA_OK) == 0) {
+        *stat = strdup(LINOTPD_OK); // Map ACCEPT to the old format
+        *msg = strdup("User authenticated successfully");
+    } else if (strcmp(auth_status, PIDEA_REJECT) == 0) {
+        *stat = strdup(LINOTPD_REJECT); // Map REJECT to the old format
+        *msg = strdup("Authentication rejected");
+    } else {
+        *stat = strdup(LINOTPD_FAIL); // Default to a fail status
+        *msg = strdup("Unknown authentication status");
+    }
+
+    // Clean up JSON object
+    json_decref(root);
+}
+
 /*************************************************************************
  * linotp utils - to manage the linotp request and response
  *************************************************************************/
@@ -307,6 +359,18 @@ void linotp_split_stat_and_message(char * s, char ** stat, char ** msg)
     and returns them by reference.
 
     */
+
+    // Check if the response starts with a '{'. Assume JSON if so.
+    if (s && s[0] == '{') {
+        // Attempt JSON parsing
+        parse_json_response(s, stat, msg);
+        if (*stat) {
+            // JSON parsing successful
+            return;
+        }
+        // Fall through to non-JSON logic if parsing failed
+    }
+
     *stat = (char *) "";
     *msg = (char *) "";
 
@@ -575,8 +639,32 @@ int linotp_auth(char *user, char *password,
         log_debug("result %s", chunk.memory);
     }
 
+    // Do a cheap JSON Check
+    // Convert Pidea to LinOTP
+    if (chunk.memory && chunk.memory[0] == '{') {
+         log_debug("Parsing JSON response");
+         char * stat = NULL;
+         char * msg = NULL;
+         parse_json_response(chunk.memory, &stat, &msg);
+         if (stat) {
+             //char *converted_stat = linotp_pidea(stat);
+             // Replace chunk.memory with the converted response
+             erase_data(chunk.memory, chunk.size);
+             chunk.size = strlen(stat) + 1;
+             chunk.memory = malloc(chunk.size);
+             if (chunk.memory) {
+                 strncpy(chunk.memory, stat, chunk.size);
+                 log_debug("Converted response into memory: %s", stat);
+             } else {
+                 log_error("Failed to allocate memory for converted response");
+                 returnValue = PAM_AUTH_ERR;
+                 goto cleanup;
+             }
+         }
+     }
+
     if (all_status != 0) {
-        log_error("Error talking to linotpd server at %s: %s", config->url,
+        log_error("Error talking to pidea or linotpd server at %s: %s", config->url,
                 errorBuffer);
         returnValue = PAM_AUTHINFO_UNAVAIL;
         goto cleanup;
@@ -1246,11 +1334,11 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char *argv[])
 
     ret = pam_linotp_get_config(argc, argv, &config, debugflag_pam);
     if (ret != PAM_SUCCESS) {
-        log_error("Failed to read the linOTP pam config");
+        log_error("Failed to read the pidea linOTP pam config");
         return ret;
     }
     if (!config.url) {
-        log_error("Invalid linOTP pam configuration (url missing)");
+        log_error("Invalid pidea/linOTP pam configuration (url missing)");
         return PAM_AUTH_ERR;
     }
 
@@ -1334,7 +1422,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char *argv[])
     }
     /* Dont clean pw2stack, its used within the next PAM module. */
     if (PAM_SUCCESS!=ret) {
-        log_info("pam_linotp callback done. [%s]", pam_strerror (pamh, ret));
+        log_info("pam_pidea_linotp callback done. [%s]", pam_strerror (pamh, ret));
         log_debug("PAM failed");
     }
     return ret;
@@ -1346,12 +1434,12 @@ PAM_EXTERN int pam_sm_setcred(pam_handle_t * pamh, int flags, int argc,
 }
 
 #ifdef PAM_MODULE_ENTRY
-PAM_MODULE_ENTRY("pam_linotp");
+PAM_MODULE_ENTRY("pam_pidea_linotp");
 #endif
 
 #ifdef PAM_STATIC
 struct pam_module _pam_linotp_modstruct = {
-    "pam_linotp",
+    "pam_pidea_linotp",
     pam_sm_authenticate,
     pam_sm_setcred,
     NULL,

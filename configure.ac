@@ -1,8 +1,7 @@
 #
-#    LinOTP - the open source solution for two factor authentication
+#    pam_pidea_linotp - LinOTP PAM module modified for Privacyidea
 #    Copyright (C) 2010 - 2017 KeyIdentity GmbH
-#
-#    This file is part of LinOTP authentication modules.
+#    Copyright (C) 2026        Adam Boutcher - IPPP, Durham University
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -14,12 +13,10 @@
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
 #
-#   You should have received a copy of the GNU General Public License
-#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
-#     E-mail: linotp@keyidentity.com
-#     Contact: www.linotp.org
-#     Support: www.keyidentity.com
+#     E-mail: adam.j.boutcher@durham.ac.uk
 #
 # Require autoconf 2.52
 AC_PREREQ(2.52)
@@ -43,7 +40,6 @@ AC_PROG_LN_S
 LT_INIT([shared])
 
 # Checks for header files.
-AC_HEADER_STDC
 AC_CHECK_HEADERS([errno.h string.h syslog.h fcntl.h unistd.h security/pam_ext.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
@@ -86,6 +82,9 @@ AC_CHECK_LIB(pam, pam_get_item, , AC_MSG_ERROR(could not locate pam libraries))
 
 # Check and set OpenSSL paths
 PKG_CHECK_MODULES(OPENSSL, openssl, [], [ AC_MSG_ERROR(openssl not found) ])
+
+# Check for JANSSON
+PKG_CHECK_MODULES(JANSSON,jansson)
 
 AC_CONFIG_FILES([
 Makefile
