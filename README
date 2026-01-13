@@ -56,7 +56,7 @@ Config options to be set in the pam configuration:
 
 Disclaimer:
 
-I do know write C, I have only modified this so it will work on EL9 with PrivacyIDEA, please open an issue/PR if you think of a saner way to make various checks and conversions.
+I don't really know write how to C, I have poorly modified this so it will work on EL9 with PrivacyIDEA, please open an issue/PR if you think of a saner way to make various checks and conversions.
 Now also requires JANSSON (libjansson-dev or jansson-devel) for the PrivacyIDEA JSON support.
 
 Have fun.
